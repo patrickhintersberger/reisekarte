@@ -104,8 +104,14 @@
 
   async function fetchRemote() {
     const res = await gh('GET');
-    if (res.status === 404) return { missing: true };
-    if (res.status === 401 || res.status === 403) throw new Error('Token ungültig oder ohne Zugriff auf das Daten-Repo.');
+    if (res.status === 401) throw new Error(ERR.badToken);
+    if (res.status === 403) throw new Error(ERR.noRights);
+    if (res.status === 404) {
+      // Unterscheiden: Datei fehlt noch, oder der Token sieht das Repo gar nicht
+      const repo = await fetch(`https://api.github.com/repos/${getRepo()}`, { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}`, 'Accept': 'application/vnd.github+json' } });
+      if (!repo.ok) throw new Error(ERR.noRepo());
+      return { missing: true };
+    }
     if (!res.ok) throw new Error(`GitHub antwortet mit Fehler ${res.status}.`);
     const meta = await res.json();
     let text;
@@ -118,6 +124,12 @@
     const data = text.trim() ? JSON.parse(text) : {};
     return { sha: meta.sha, places: toMap(data.places), trips: toMap(data.trips) };
   }
+
+  const ERR = {
+    badToken: 'GitHub kennt diesen Token nicht. Meist wurde er nicht vollständig kopiert. Kopiere ihn auf GitHub mit dem Kopier-Symbol neu, tippe hier auf „Trennen“, füge ihn ein und tippe auf „Verbinden“.',
+    noRights: 'Der Token darf nicht schreiben. Stelle auf GitHub beim Token unter Permissions → Repository → „Contents“ auf „Read and write“.',
+    noRepo: () => `Der Token hat keinen Zugriff auf „${getRepo()}“. Wähle auf GitHub beim Token unter Repository access „Only select repositories“ → „${getRepo().split('/')[1]}“.`,
+  };
 
   let syncing = null;
   let again = false;
@@ -147,6 +159,9 @@
             ...(store.sha ? { sha: store.sha } : {}),
           });
           if (res.status === 409 || res.status === 422) continue; // jemand anders war schneller -> neu zusammenführen
+          if (res.status === 401) throw new Error(ERR.badToken);
+          if (res.status === 403) throw new Error(ERR.noRights);
+          if (res.status === 404) throw new Error(ERR.noRepo());
           if (!res.ok) throw new Error(`Speichern fehlgeschlagen (Fehler ${res.status}).`);
           const out = await res.json();
           store.sha = out.content && out.content.sha;
@@ -188,7 +203,7 @@
     hasToken() { return !!getToken(); },
     repo: getRepo,
     setToken(token, repo) {
-      if (token) lsSet(LS_TOKEN, token.trim()); else lsDel(LS_TOKEN);
+      if (token) lsSet(LS_TOKEN, token.replace(/\s+/g, '')); else lsDel(LS_TOKEN);
       if (repo && repo.trim() && repo.trim() !== `${cfg.owner}/${cfg.dataRepo}`) lsSet(LS_REPO, repo.trim()); else lsDel(LS_REPO);
       store.sha = null;
       return sync();
