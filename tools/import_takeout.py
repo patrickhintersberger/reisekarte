@@ -30,18 +30,18 @@ TRIP_COLORS = ['#1a73e8', '#e8710a', '#188038', '#d93025', '#9334e6', '#12b5cb',
 
 # --- Kategorien (entspricht config.js) ---
 KEYWORDS = [
-    ('stellplatz', r'stellplatz|wohnmobil|camper ?stop|aire de|sosta camper|park4night|rv park'),
+    ('stellplatz', r'übernacht|camper|stellplatz|wohnmobil|camper ?stop|aire de|sosta camper|park4night|rv park'),
     ('camping', r'camping|campground|campsite|camp site|campeggio|glamping'),
-    ('aussicht', r'aussicht|viewpoint|view point|mirador|belvedere|panorama|lookout|miradouro|point de vue|utsikt'),
-    ('strand', r'strand|beach|playa|praia|plage|spiaggia'),
+    ('aussicht', r'\bcapo\b|\bkap\b|aussicht|viewpoint|view point|mirador|belvedere|panorama|lookout|miradouro|point de vue|utsikt'),
+    ('strand', r'\bcala\b|strand|beach|playa|praia|plage|spiaggia'),
     ('wasser', r'wasserfall|waterfall|cascada|cascata|cascade|foss\b|see\b|lake|lago|lac\b'),
-    ('wandern', r'wander|wanderweg|hike|hiking|trail|sentiero|sendero|klettersteig|schlucht'),
-    ('natur', r'\bpark\b|naturschutz|nationalpark|national park|naturpark|parque natural|gorge|canyon|höhle|cave'),
+    ('wandern', r'\bgola\b|wander|wanderweg|hike|hiking|trail|sentiero|sendero|klettersteig|schlucht'),
+    ('natur', r'grotta|grotte|\bisola\b|flamingo|\bpark\b|naturschutz|nationalpark|national park|naturpark|parque natural|gorge|canyon|höhle|cave'),
     ('museum', r'museum|museo|musée|galerie|gallery'),
     ('restaurant', r'restaurant|ristorante|trattoria|osteria|pizzeria|taverna|bistro|gasthaus|gasthof|wirtshaus|steakhouse|sushi|burger'),
     ('cafe', r'café|cafe|coffee|kaffee|bar\b|pub\b|bakery|bäckerei|gelateria|eis'),
     ('unterkunft', r'hotel|hostel|pension|apartment|b&b|guesthouse|lodge|resort|ferienwohnung'),
-    ('sehenswuerdigkeit', r'sehenswürdigkeit|touristenattraktion|historisch|wahrzeichen|burg|schloss|castle|castillo|castello|château|kirche|dom\b|kathedrale|cathedral|church|basilica|kloster|abbey|monastery|tempel|temple|palast|palace|palazzo|tower|turm|brücke|bridge|ruine|ruins|denkmal|monument|leuchtturm|lighthouse|altstadt|old town|piazza|plaza'),
+    ('sehenswuerdigkeit', r'nurag|nuraxi|murales|sehenswürdigkeit|touristenattraktion|historisch|wahrzeichen|burg|schloss|castle|castillo|castello|château|kirche|dom\b|kathedrale|cathedral|church|basilica|kloster|abbey|monastery|tempel|temple|palast|palace|palazzo|tower|turm|brücke|bridge|ruine|ruins|denkmal|monument|leuchtturm|lighthouse|altstadt|old town|piazza|plaza'),
 ]
 KEYWORDS = [(c, re.compile(p, re.I)) for c, p in KEYWORDS]
 OSM_MAP = {
@@ -54,20 +54,22 @@ OSM_MAP = {
     'natural:beach': 'strand', 'leisure:beach_resort': 'strand', 'waterway:waterfall': 'wasser', 'natural:water': 'wasser',
     'natural:spring': 'wasser', 'leisure:nature_reserve': 'natur', 'boundary:national_park': 'natur', 'boundary:protected_area': 'natur',
     'leisure:park': 'natur', 'natural:cave_entrance': 'natur', 'natural:glacier': 'natur', 'natural:wood': 'natur',
-    'highway:path': 'wandern', 'route:hiking': 'wandern',
     'tourism:hotel': 'unterkunft', 'tourism:hostel': 'unterkunft', 'tourism:guest_house': 'unterkunft', 'tourism:apartment': 'unterkunft',
     'tourism:chalet': 'unterkunft', 'place:city': 'stadt', 'place:town': 'stadt', 'place:village': 'stadt', 'place:hamlet': 'stadt',
     'boundary:administrative': 'stadt',
 }
 
 
-def guess_category(name, osm_class=None, osm_type=None, google_cats=None):
+def guess_category(name, osm_class=None, osm_type=None, google_cats=None, hint=None):
     for gc in google_cats or []:
         for cat, rx in KEYWORDS:
             if rx.search(gc or ''):
                 return cat
     for cat, rx in KEYWORDS:
         if rx.search(name or ''):
+            return cat
+    for cat, rx in KEYWORDS:
+        if rx.search(hint or ''):
             return cat
     if osm_class:
         return OSM_MAP.get(f'{osm_class}:{osm_type}') or OSM_MAP.get(f'{osm_class}:*') or 'sonstiges'
@@ -204,7 +206,7 @@ def read_geojson(path):
         return []
     if not isinstance(data, dict) or data.get('type') != 'FeatureCollection':
         return []
-    list_name = 'Markierte Orte'
+    list_name = 'Bewertet' if os.path.basename(path).lower() in REVIEW_FILES else 'Markierte Orte'
     items = []
     for f in data.get('features', []):
         p = f.get('properties') or {}
@@ -232,23 +234,56 @@ def read_kml_text(text, list_name):
         root = ET.fromstring(text)
     except ET.ParseError:
         return items
-    for pm in root.iter('Placemark'):
-        name = (pm.findtext('name') or '').strip()
-        desc = re.sub(r'<[^>]+>', ' ', pm.findtext('description') or '').strip()
-        c = pm.find('.//Point/coordinates')
-        if c is None or not (c.text or '').strip():
-            continue
-        lng, lat = [float(x) for x in c.text.strip().split(',')[:2]]
-        items.append({'name': name, 'url': '', 'note': desc, 'list': list_name, 'lat': lat, 'lng': lng})
+
+    def walk(node, folder):
+        for child in node:
+            if child.tag == 'Folder':
+                walk(child, (child.findtext('name') or '').strip() or folder)
+            elif child.tag == 'Placemark':
+                name = (child.findtext('name') or '').strip()
+                desc = re.sub(r'<[^>]+>', ' ', child.findtext('description') or '').strip()
+                c = child.find('.//Point/coordinates')
+                if c is None or not (c.text or '').strip():
+                    continue
+                lng, lat = [float(x) for x in c.text.strip().split(',')[:2]]
+                items.append({'name': name, 'url': '', 'note': desc, 'list': list_name, 'lat': lat, 'lng': lng, 'hint': folder})
+            else:
+                walk(child, folder)
+    walk(root, '')
     return items
 
 
-def read_takeout(folder):
+SAVED_DIRS = ('gespeichert', 'saved')
+STARRED_FILES = ('gespeicherte orte.json', 'saved places.json')
+REVIEW_FILES = ('bewertungen.json', 'reviews.json')
+MYMAPS_DIRS = ('my maps', 'meine karten')
+
+
+def wanted(path, folder, only, with_reviews):
+    rel = os.path.relpath(path, folder)
+    parts = [x.lower() for x in rel.split(os.sep)]
+    low = parts[-1]
+    if only and not any(o.lower() in rel.lower() for o in only):
+        return False
+    if low.endswith('.csv'):
+        return any(d in parts[:-1] for d in SAVED_DIRS)
+    if low in STARRED_FILES:
+        return True
+    if low in REVIEW_FILES:
+        return with_reviews
+    if low.endswith(('.kml', '.kmz')):
+        return any(d in parts[:-1] for d in MYMAPS_DIRS) or not any(d in parts for d in ('maps',))
+    return False
+
+
+def read_takeout(folder, only=None, with_reviews=False):
     items = []
     for dirpath, _, files in os.walk(folder):
         for fn in sorted(files):
             path = os.path.join(dirpath, fn)
             low = fn.lower()
+            if not wanted(path, folder, only, with_reviews):
+                continue
             if low.endswith('.csv'):
                 got = read_csv(path)
             elif low.endswith('.json') or low.endswith('.geojson'):
@@ -303,6 +338,8 @@ def main():
     ap.add_argument('takeout')
     ap.add_argument('--existing', help='vorhandene places.json (wird ergänzt)')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--only', nargs='*', help='nur Dateien, deren Pfad einen dieser Texte enthält')
+    ap.add_argument('--with-reviews', action='store_true', help='auch bewertete Orte importieren')
     ap.add_argument('--fast', action='store_true', help='Google nur abfragen, wenn Koordinaten fehlen')
     ap.add_argument('--no-lists-as-trips', action='store_true', help='Listen nicht als Trips anlegen')
     args = ap.parse_args()
@@ -316,7 +353,7 @@ def main():
     live = [p for p in places.values() if not p.get('deleted')]
 
     print('Lese Takeout …')
-    raw = read_takeout(args.takeout)
+    raw = read_takeout(args.takeout, args.only, args.with_reviews)
     if not raw:
         print('Keine Orte gefunden. Stimmt der Ordner?')
         sys.exit(1)
@@ -381,9 +418,11 @@ def main():
                 print('    Position über OpenStreetMap-Suche (bitte prüfen)')
         if lat is not None and not osm:
             osm = nominatim_reverse(lat, lng)
+            if osm and osm.get('category') in ('amenity', 'highway', 'shop', 'building'):
+                osm = {**osm, 'category': None, 'type': None}
         addr = (osm or {}).get('address') or {}
         country = it.get('country') or (addr.get('country_code') or '').lower() or None
-        category = guess_category(name, (osm or {}).get('category'), (osm or {}).get('type'), (g or {}).get('cats'))
+        category = guess_category(name, (osm or {}).get('category'), (osm or {}).get('type'), (g or {}).get('cats'), it.get('hint'))
         place = {
             'id': stable_id('p', it['gkey']),
             'name': name,
