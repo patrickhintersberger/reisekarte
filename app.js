@@ -222,13 +222,50 @@
     } catch { return null; }
   }
   let searchAbort = null;
+  const searchCache = new Map();
+  // Schnelle Suche beim Abschicken (Enter / „Suchen“). Nominatim erlaubt keine Suche bei jedem Tastendruck.
+  let lastNominatim = 0;
+  async function nominatimSearch(q) {
+    const key = 'n|' + norm(q);
+    if (searchCache.has(key)) return searchCache.get(key);
+    searchAbort?.abort();
+    const wait = lastNominatim + 1000 - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastNominatim = Date.now();
+    const vb = map.getBounds().pad(2);
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=de&q=${encodeURIComponent(q)}&viewbox=${vb.getWest()},${vb.getNorth()},${vb.getEast()},${vb.getSouth()}`;
+    const j = await (await fetch(url)).json();
+    const out = (j || []).map(x => {
+      const a = x.address || {};
+      const place = a.city || a.town || a.village || a.municipality || a.county;
+      const bb = x.boundingbox ? x.boundingbox.map(Number) : null; // [S, N, W, E]
+      return {
+        name: x.name || (x.display_name || '').split(',')[0] || q,
+        sub: [place, a.state, a.country].filter(Boolean).filter(s => s !== x.name).join(', '),
+        lat: +x.lat, lng: +x.lon,
+        country: (a.country_code || '').toLowerCase() || null,
+        extent: bb ? [bb[2], bb[1], bb[3], bb[0]] : null, // [W, N, E, S] wie bei Photon
+        category: guessCategory(x.name, x.category, x.type),
+        address: x.display_name || '',
+      };
+    });
+    searchCache.set(key, out);
+    return out;
+  }
   async function photon(q) {
+    const key = 'p|' + norm(q);
+    if (searchCache.has(key)) return searchCache.get(key);
     searchAbort?.abort();
     searchAbort = new AbortController();
     const c = map.getCenter();
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&location_bias_scale=0.3`;
     const r = await fetch(url, { signal: searchAbort.signal });
     const j = await r.json();
+    const out = photonMap(j, q);
+    searchCache.set(key, out);
+    return out;
+  }
+  function photonMap(j, q) {
     const seen = new Set();
     return (j.features || []).filter(f => {
       const p = f.properties || {};
@@ -859,7 +896,7 @@
     let html = '';
     if (saved.length) html += `<h4>Gespeichert</h4>` + saved.map(p => { const c = cat(p.category); return `<button class="result" data-saved="${p.id}"><span class="r-ico" style="background:${c.color};color:#fff"><span class="ms fill">${c.icon}</span></span><div><b>${esc(p.name)}${p.visited ? ' ✅' : ''}</b><small>${flag(p.country)} ${esc(p.city || countryName(p.country))}</small></div></button>`; }).join('');
     if (remote.length) html += `<h4>Orte</h4>` + remote.map((r, i) => `<button class="result" data-remote="${i}"><span class="r-ico"><span class="ms">place</span></span><div><b>${esc(r.name)}</b><small>${flag(r.country)} ${esc(r.sub)}</small></div></button>`).join('');
-    if (loading && !remote.length) html += `<div class="empty">Suche …</div>`;
+    if (loading && !remote.length) html += `<div class="empty">Suche … <span class="small">Mit Enter bzw. „Suchen“ geht es schneller.</span></div>`;
     if (!loading && !saved.length && !remote.length) html += `<div class="empty">Keine Treffer.</div>`;
     results.innerHTML = html;
     results.hidden = false;
@@ -887,11 +924,37 @@
     if (term.length < 2) { results.hidden = true; return; }
     const saved = savedMatches(term);
     renderResults(saved, [], true);
+    if (term.length < 3) return;
     searchTimer = setTimeout(async () => {
-      try { lastResults = await photon(term); if (q.value.trim() === term) renderResults(saved, lastResults, false); }
-      catch (e) { if (e.name !== 'AbortError') renderResults(saved, [], false); }
-    }, 280);
+      try {
+        const res = await photon(term);
+        if (q.value.trim() === term && !submitted) { lastResults = res; renderResults(saved, res, false); }
+      } catch (e) { if (e.name !== 'AbortError' && !submitted) renderResults(saved, [], false); }
+    }, 200);
   });
+  let submitted = false;
+  q.addEventListener('input', () => { submitted = false; });
+  async function quickSearch() {
+    const term = q.value.trim();
+    if (term.length < 2) return;
+    clearTimeout(searchTimer);
+    submitted = true;
+    const saved = savedMatches(term);
+    renderResults(saved, [], true);
+    try {
+      const res = await nominatimSearch(term);
+      if (q.value.trim() !== term) return;
+      if (!res.length) {
+        // nichts gefunden: auf die Vorschlagssuche zurückfallen
+        const alt = await photon(term).catch(() => []);
+        if (q.value.trim() !== term) return;
+        lastResults = alt; renderResults(saved, alt, false); return;
+      }
+      lastResults = res;
+      if (res.length === 1 && !saved.length) pickRemote(res[0]);
+      else renderResults(saved, res, false);
+    } catch { renderResults(saved, lastResults, false); }
+  }
   q.addEventListener('keydown', e => {
     const items = [...results.querySelectorAll('.result')];
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -903,7 +966,8 @@
   $('#searchform').onsubmit = e => {
     e.preventDefault();
     const items = [...results.querySelectorAll('.result')];
-    (items[activeIdx] || items[0])?.click();
+    if (activeIdx >= 0 && items[activeIdx]) items[activeIdx].click();
+    else quickSearch();
   };
   q.addEventListener('focus', () => { if (q.value.trim().length >= 2 && results.innerHTML) results.hidden = false; });
   document.addEventListener('pointerdown', e => { if (!e.target.closest('.topbar')) results.hidden = true; });
