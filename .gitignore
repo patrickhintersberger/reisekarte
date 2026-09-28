@@ -1,0 +1,6 @@
+.DS_Store
+.claude/
+takeout/
+_daten/
+tools/__pycache__/
+tools/geocode_cache.json

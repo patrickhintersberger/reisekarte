@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Reisekarte</title>
+<meta name="description" content="Meine Sehenswürdigkeiten, Campingplätze, Restaurants und Aussichtspunkte auf einer Karte.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#202124" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Reisekarte">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..24,400..600,0..1,0&icon_names=account_balance,add,arrow_back,beach_access,camping,check,check_circle,chevron_right,close,cloud_done,cloud_off,delete,directions,download,edit,expand_less,expand_more,hiking,hotel,landscape,layers,list,local_cafe,location_city,luggage,map,museum,my_location,open_in_new,open_with,park,place,public,radio_button_unchecked,restaurant,route,rv_hookup,search,settings,sync,upload,water,wrong_location,zoom_in&display=block">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="map" aria-label="Karte"></div>
+
+  <header class="topbar">
+    <form class="searchbox" id="searchform" role="search" autocomplete="off">
+      <button type="button" class="icon-btn" id="search-lead" aria-label="Suchen"><span class="ms">search</span></button>
+      <input id="q" type="search" placeholder="Hier suchen" aria-label="Orte suchen" enterkeyhint="search">
+      <button type="button" class="icon-btn" id="search-clear" aria-label="Suche leeren" hidden><span class="ms">close</span></button>
+      <button type="button" class="icon-btn sync-btn" id="sync-btn" aria-label="Einstellungen und Synchronisation"><span class="ms">settings</span><i class="sync-dot"></i></button>
+    </form>
+    <div id="results" class="results" hidden></div>
+  </header>
+
+  <div class="chips" id="chips" role="toolbar" aria-label="Kategorien filtern"></div>
+
+  <div class="fabs">
+    <button class="fab" id="layer-btn" aria-label="Kartentyp wechseln"><span class="ms">layers</span></button>
+    <button class="fab" id="locate-btn" aria-label="Mein Standort"><span class="ms">my_location</span></button>
+  </div>
+
+  <aside id="sheet" class="sheet" data-snap="peek" aria-label="Orte">
+    <div class="sheet-grip" id="sheet-grip"><span></span></div>
+    <div id="sheet-body" class="sheet-body"></div>
+  </aside>
+
+  <div id="banner" class="banner" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
+<script src="config.js"></script>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
