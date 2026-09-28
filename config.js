@@ -5,6 +5,8 @@ window.RK_CONFIG = {
   dataRepo: 'reisekarte-daten',
   dataPath: 'places.json',
   branch: 'main',
+  // Schnelle Live-Suche (Geoapify, Gratis-Plan). Der Schlüssel ist auf die Reisekarten-Adresse beschränkt.
+  geoapifyKey: '6deece52a3484a56bf82283b8d70f588',
 };
 
 window.RK_CATEGORIES = [

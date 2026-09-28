@@ -63,7 +63,7 @@
   map.on('moveend', () => { const c = map.getCenter(); lsSet('rk-view', [c.lat, c.lng, map.getZoom()]); });
 
   const dark = window.matchMedia('(prefers-color-scheme: dark)');
-  const attrOSM = '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+  const attrOSM = 'Suche: <a href="https://www.geoapify.com" target="_blank" rel="noopener">Powered by Geoapify</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
   // Vektorkarte (OpenFreeMap) mit deutschen Beschriftungen
   function vectorLayer(style) {
     const layer = L.maplibreGL({ style: `https://tiles.openfreemap.org/styles/${style}`, attribution: attrOSM });
@@ -257,15 +257,43 @@
     const key = 'p|' + norm(q);
     if (searchCache.has(key)) return Promise.resolve(searchCache.get(key));
     if (photonPending.has(key)) return photonPending.get(key);
-    const c = map.getCenter();
-    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&location_bias_scale=0.3`;
-    const pr = fetch(url).then(r => r.json()).then(j => {
-      const out = photonMap(j, q);
+    const pr = (geoapifyOk() ? geoapify(q).catch(() => photonFetch(q)) : photonFetch(q)).then(out => {
       searchCache.set(key, out);
       return out;
     }).finally(() => photonPending.delete(key));
     photonPending.set(key, pr);
     return pr;
+  }
+  function photonFetch(q) {
+    const c = map.getCenter();
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&location_bias_scale=0.3`;
+    return fetch(url).then(r => r.json()).then(j => photonMap(j, q));
+  }
+  // Geoapify: schnell, 3.000 Anfragen/Tag gratis. Bei Fehlern (z. B. Kontingent leer) für eine Stunde Photon verwenden.
+  let geoapifyBlockedUntil = 0;
+  const geoapifyOk = () => !!window.RK_CONFIG.geoapifyKey && Date.now() > geoapifyBlockedUntil;
+  async function geoapify(q) {
+    const c = map.getCenter();
+    const url = `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(q)}&lang=de&limit=8&bias=proximity:${c.lng.toFixed(3)},${c.lat.toFixed(3)}&apiKey=${window.RK_CONFIG.geoapifyKey}`;
+    const r = await fetch(url);
+    if (!r.ok) { geoapifyBlockedUntil = Date.now() + 3600e3; throw new Error('geoapify ' + r.status); }
+    const j = await r.json();
+    const seen = new Set();
+    return (j.features || []).map(f => {
+      const p = f.properties || {};
+      const raw = (p.datasource && p.datasource.raw) || {};
+      const osmKey = ['tourism', 'historic', 'amenity', 'natural', 'leisure', 'waterway', 'place', 'boundary', 'man_made'].find(k => raw[k]);
+      const name = p.name || p.address_line1 || p.formatted || q;
+      return {
+        name,
+        sub: (p.name ? [p.address_line2] : [p.city, p.state, p.country]).filter(Boolean).join(', '),
+        lat: p.lat, lng: p.lon,
+        country: (p.country_code || '').toLowerCase() || null,
+        extent: f.bbox || null,
+        category: guessCategory(name, osmKey, osmKey && raw[osmKey]),
+        address: p.formatted || '',
+      };
+    }).filter(r => { const k = `${r.name}|${r.sub}`; if (seen.has(k)) return false; seen.add(k); return true; });
   }
   function photonMap(j, q) {
     const seen = new Set();
