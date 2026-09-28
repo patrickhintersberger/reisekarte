@@ -221,14 +221,12 @@
       };
     } catch { return null; }
   }
-  let searchAbort = null;
   const searchCache = new Map();
   // Schnelle Suche beim Abschicken (Enter / „Suchen“). Nominatim erlaubt keine Suche bei jedem Tastendruck.
   let lastNominatim = 0;
   async function nominatimSearch(q) {
     const key = 'n|' + norm(q);
     if (searchCache.has(key)) return searchCache.get(key);
-    searchAbort?.abort();
     const wait = lastNominatim + 1000 - Date.now();
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
     lastNominatim = Date.now();
@@ -252,18 +250,22 @@
     searchCache.set(key, out);
     return out;
   }
-  async function photon(q) {
+  // Vorschläge beim Tippen. Anfragen laufen parallel weiter (kein Abbrechen), damit
+  // Ergebnisse für den bisher getippten Anfang schon erscheinen, während man weitertippt.
+  const photonPending = new Map();
+  function photon(q) {
     const key = 'p|' + norm(q);
-    if (searchCache.has(key)) return searchCache.get(key);
-    searchAbort?.abort();
-    searchAbort = new AbortController();
+    if (searchCache.has(key)) return Promise.resolve(searchCache.get(key));
+    if (photonPending.has(key)) return photonPending.get(key);
     const c = map.getCenter();
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lang=de&limit=7&lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&location_bias_scale=0.3`;
-    const r = await fetch(url, { signal: searchAbort.signal });
-    const j = await r.json();
-    const out = photonMap(j, q);
-    searchCache.set(key, out);
-    return out;
+    const pr = fetch(url).then(r => r.json()).then(j => {
+      const out = photonMap(j, q);
+      searchCache.set(key, out);
+      return out;
+    }).finally(() => photonPending.delete(key));
+    photonPending.set(key, pr);
+    return pr;
   }
   function photonMap(j, q) {
     const seen = new Set();
@@ -917,20 +919,42 @@
     } else focusOn(r.lat, r.lng, 15);
   }
   function closeSearch() { results.hidden = true; q.blur(); }
+  let shownFor = '';   // Suchbegriff, dessen Vorschläge gerade angezeigt werden
+  function bestCached(term) {
+    // längster schon beantworteter Anfang des aktuellen Begriffs
+    for (let i = term.length; i >= 3; i--) {
+      const hit = searchCache.get('p|' + norm(term.slice(0, i)));
+      if (hit) return { t: term.slice(0, i), res: hit };
+    }
+    return null;
+  }
+  function showSuggestions(term) {
+    const cur = q.value.trim();
+    if (submitted || !norm(cur).startsWith(norm(term))) return;
+    if (shownFor && norm(shownFor).length > norm(term).length && norm(cur).startsWith(norm(shownFor))) return; // Genaueres wird schon gezeigt
+    let res = searchCache.get('p|' + norm(term)) || [];
+    if (norm(term) !== norm(cur)) {
+      // Ergebnisse für einen Anfang nur zeigen, soweit sie zum aktuell Getippten passen
+      const words = norm(cur).split(/\s+/).filter(Boolean);
+      res = res.filter(r => { const h = norm(r.name + ' ' + r.sub); return words.every(w => h.includes(w)); });
+    }
+    shownFor = term;
+    lastResults = res;
+    renderResults(savedMatches(cur), res, norm(term) !== norm(cur));
+  }
   q.addEventListener('input', () => {
     const term = q.value.trim();
     $('#search-clear').hidden = !q.value;
     clearTimeout(searchTimer);
-    if (term.length < 2) { results.hidden = true; return; }
-    const saved = savedMatches(term);
-    renderResults(saved, [], true);
+    if (term.length < 2) { results.hidden = true; shownFor = ''; return; }
+    if (shownFor && !norm(term).startsWith(norm(shownFor))) shownFor = '';
+    const cached = bestCached(term);
+    if (cached) { shownFor = ''; showSuggestions(cached.t); }
+    else renderResults(savedMatches(term), [], true);
     if (term.length < 3) return;
-    searchTimer = setTimeout(async () => {
-      try {
-        const res = await photon(term);
-        if (q.value.trim() === term && !submitted) { lastResults = res; renderResults(saved, res, false); }
-      } catch (e) { if (e.name !== 'AbortError' && !submitted) renderResults(saved, [], false); }
-    }, 200);
+    searchTimer = setTimeout(() => {
+      photon(term).then(() => showSuggestions(term)).catch(() => { if (q.value.trim() === term && !lastResults.length) renderResults(savedMatches(term), [], false); });
+    }, 120);
   });
   let submitted = false;
   q.addEventListener('input', () => { submitted = false; });
