@@ -180,7 +180,12 @@
     const opts = isDesktop()
       ? { paddingTopLeft: [430, 80], paddingBottomRight: [60, 40], maxZoom: 15 }
       : { paddingTopLeft: [30, 120], paddingBottomRight: [30, sheetHeight() + 20], maxZoom: 15 };
-    map.flyToBounds(L.latLngBounds(pts), { ...opts, duration: .6 });
+    const size = map.getSize();
+    const padX = (opts.paddingTopLeft[0] + opts.paddingBottomRight[0]), padY = (opts.paddingTopLeft[1] + opts.paddingBottomRight[1]);
+    // Bei sehr kleinem Kartenfenster wäre der Rand größer als die Karte -> ohne Rand einpassen
+    const safe = size.x - padX > 80 && size.y - padY > 80 ? opts : { maxZoom: 15 };
+    try { map.flyToBounds(L.latLngBounds(pts), { ...safe, duration: .6 }); }
+    catch { try { map.fitBounds(L.latLngBounds(pts), { maxZoom: 15 }); } catch {} }
   }
 
   // temporärer Marker (Suchergebnis / neuer Punkt)
@@ -976,7 +981,7 @@
   }
   function showSuggestions(term) {
     const cur = q.value.trim();
-    if (submitted || !norm(cur).startsWith(norm(term))) return;
+    if (submitted || document.activeElement !== q || !norm(cur).startsWith(norm(term))) return; // Suche schon geschlossen
     if (shownFor && norm(shownFor).length > norm(term).length && norm(cur).startsWith(norm(shownFor))) return; // Genaueres wird schon gezeigt
     let res = searchCache.get('p|' + norm(term)) || [];
     if (norm(term) !== norm(cur)) {
