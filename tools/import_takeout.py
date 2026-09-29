@@ -32,16 +32,17 @@ TRIP_COLORS = ['#1a73e8', '#e8710a', '#188038', '#d93025', '#9334e6', '#12b5cb',
 KEYWORDS = [
     ('stellplatz', r'übernacht|camper|stellplatz|wohnmobil|camper ?stop|aire de|sosta camper|park4night|rv park'),
     ('camping', r'camping|campground|campsite|camp site|campeggio|glamping'),
-    ('aussicht', r'\bcapo\b|\bkap\b|aussicht|viewpoint|view point|mirador|belvedere|panorama|lookout|miradouro|point de vue|utsikt'),
-    ('strand', r'\bcala\b|strand|beach|playa|praia|plage|spiaggia'),
-    ('wasser', r'wasserfall|waterfall|cascada|cascata|cascade|foss\b|see\b|lake|lago|lac\b'),
+    ('aussicht', r'berggipfel|gipfel|gebirgspass|\bpass\b|\bvista\b|landschaftlich schön|\bridge\b|elevated|steilhang|mountain range|bergbahn|seilbahn|\bcapo\b|\bkap\b|aussicht|viewpoint|view point|mirador|belvedere|panorama|lookout|miradouro|point de vue|utsikt'),
+    ('strand', r'\bbucht\b|\bcala\b|strand|beach|playa|praia|plage|spiaggia'),
+    ('wasser', r'\bfluss\b|\bkanal\b|wasserfall|waterfall|cascada|cascata|cascade|foss\b|see\b|lake|lago|lac\b'),
     ('wandern', r'\bgola\b|wander|wanderweg|hike|hiking|trail|sentiero|sendero|klettersteig|schlucht'),
-    ('natur', r'grotta|grotte|\bisola\b|flamingo|\bpark\b|naturschutz|nationalpark|national park|naturpark|parque natural|gorge|canyon|höhle|cave'),
+    ('natur', r'halbinsel|insel|gletscher|vulkan|\bwald\b|\bdune\b|düne|terrain|\bgarten\b|gärten|grotta|grotte|\bisola\b|flamingo|\bpark\b|naturschutz|nationalpark|national park|naturpark|parque natural|gorge|canyon|höhle|cave'),
     ('museum', r'museum|museo|musée|galerie|gallery'),
-    ('restaurant', r'restaurant|ristorante|trattoria|osteria|pizzeria|taverna|bistro|gasthaus|gasthof|wirtshaus|steakhouse|sushi|burger'),
-    ('cafe', r'café|cafe|coffee|kaffee|bar\b|pub\b|bakery|bäckerei|gelateria|eis'),
-    ('unterkunft', r'hotel|hostel|pension|apartment|b&b|guesthouse|lodge|resort|ferienwohnung'),
-    ('sehenswuerdigkeit', r'nurag|nuraxi|murales|sehenswürdigkeit|touristenattraktion|historisch|wahrzeichen|burg|schloss|castle|castillo|castello|château|kirche|dom\b|kathedrale|cathedral|church|basilica|kloster|abbey|monastery|tempel|temple|palast|palace|palazzo|tower|turm|brücke|bridge|ruine|ruins|denkmal|monument|leuchtturm|lighthouse|altstadt|old town|piazza|plaza'),
+    ('restaurant', r'steakhaus|gastrokneipe|weinstube|restaurant|ristorante|trattoria|osteria|pizzeria|taverna|bistro|gasthaus|gasthof|wirtshaus|steakhouse|sushi|burger'),
+    ('cafe', r'brauerei|biergarten|patisserie|café|cafe|coffee|kaffee|bar\b|pub\b|bakery|bäckerei|gelateria|eis'),
+    ('unterkunft', r'bed and breakfast|beherbergung|hotel|hostel|pension|apartment|b&b|guesthouse|lodge|resort|ferienwohnung'),
+    ('stadt', r'stadtplatz|\bmarkt\b|promenade|bedeutende straße'),
+    ('sehenswuerdigkeit', r'moschee|theater|\bzoo\b|aquarium|rathaus|nurag|nuraxi|murales|sehenswürdigkeit|touristenattraktion|historisch|wahrzeichen|burg|schloss|castle|castillo|castello|château|kirche|dom\b|kathedrale|cathedral|church|basilica|kloster|abbey|monastery|tempel|temple|palast|palace|palazzo|tower|turm|brücke|bridge|ruine|ruins|denkmal|monument|leuchtturm|lighthouse|altstadt|old town|piazza|plaza'),
 ]
 KEYWORDS = [(c, re.compile(p, re.I)) for c, p in KEYWORDS]
 OSM_MAP = {
@@ -139,6 +140,7 @@ def google_place(url):
             result = info or None
     except Exception as e:
         print(f'    Google-Abfrage fehlgeschlagen: {e}', file=sys.stderr)
+        return None  # Netzwerkfehler nicht zwischenspeichern, beim nächsten Lauf erneut versuchen
     CACHE[key] = result
     save_cache()
     return result
@@ -253,6 +255,7 @@ def read_kml_text(text, list_name):
     return items
 
 
+EXCLUDE = []
 SAVED_DIRS = ('gespeichert', 'saved')
 STARRED_FILES = ('gespeicherte orte.json', 'saved places.json')
 REVIEW_FILES = ('bewertungen.json', 'reviews.json')
@@ -264,6 +267,8 @@ def wanted(path, folder, only, with_reviews):
     parts = [x.lower() for x in rel.split(os.sep)]
     low = parts[-1]
     if only and not any(o.lower() in rel.lower() for o in only):
+        return False
+    if EXCLUDE and any(x.lower() in rel.lower() for x in EXCLUDE):
         return False
     if low.endswith('.csv'):
         return any(d in parts[:-1] for d in SAVED_DIRS)
@@ -339,6 +344,7 @@ def main():
     ap.add_argument('--existing', help='vorhandene places.json (wird ergänzt)')
     ap.add_argument('--out', required=True)
     ap.add_argument('--only', nargs='*', help='nur Dateien, deren Pfad einen dieser Texte enthält')
+    ap.add_argument('--exclude', nargs='*', default=[], help='Dateien auslassen, deren Pfad einen dieser Texte enthält')
     ap.add_argument('--with-reviews', action='store_true', help='auch bewertete Orte importieren')
     ap.add_argument('--fast', action='store_true', help='Google nur abfragen, wenn Koordinaten fehlen')
     ap.add_argument('--no-lists-as-trips', action='store_true', help='Listen nicht als Trips anlegen')
@@ -353,6 +359,7 @@ def main():
     live = [p for p in places.values() if not p.get('deleted')]
 
     print('Lese Takeout …')
+    EXCLUDE.extend(args.exclude)
     raw = read_takeout(args.takeout, args.only, args.with_reviews)
     if not raw:
         print('Keine Orte gefunden. Stimmt der Ordner?')
@@ -385,7 +392,7 @@ def main():
     added = updated = nopos = 0
     for i, it in enumerate(merged.values(), 1):
         name = it['name'] or '(ohne Namen)'
-        print(f'[{i}/{len(merged)}] {name}')
+        print(f'[{i}/{len(merged)}] {name}', flush=True)
         trip_ids = [] if args.no_lists_as_trips else [trip_for(l) for l in sorted(it['lists'])]
 
         # Schon vorhanden?
@@ -423,6 +430,8 @@ def main():
         addr = (osm or {}).get('address') or {}
         country = it.get('country') or (addr.get('country_code') or '').lower() or None
         category = guess_category(name, (osm or {}).get('category'), (osm or {}).get('type'), (g or {}).get('cats'), it.get('hint'))
+        if category == 'sonstiges' and g and g.get('lat') is not None and not g.get('cats'):
+            category = 'stadt'  # Google liefert für Städte, Orte und Straßen keine Kategorie
         place = {
             'id': stable_id('p', it['gkey']),
             'name': name,
