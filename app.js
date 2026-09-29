@@ -4,6 +4,12 @@
   const S = window.RK_STORE;
   const CATS = window.RK_CATEGORIES;
   const CAT = Object.fromEntries(CATS.map(c => [c.id, c]));
+  // Priorität nach Pareto: die wenigen Orte, die den Großteil des Erlebnisses ausmachen, zuerst
+  const PRIO = {
+    1: { stars: '★★★', label: 'Must-see', hint: 'Einer der Höhepunkte, unbedingt einplanen' },
+    2: { stars: '★★', label: 'Lohnt sich', hint: 'Schön, wenn Zeit ist' },
+    3: { stars: '★', label: 'Optional', hint: 'Nur bei Interesse oder wenn es auf dem Weg liegt' },
+  };
   const TRIP_COLORS = ['#1a73e8', '#e8710a', '#188038', '#d93025', '#9334e6', '#12b5cb', '#e52592', '#f9ab00', '#5f6368', '#795548'];
   const regionNames = (() => { try { return new Intl.DisplayNames(['de'], { type: 'region' }); } catch { return null; } })();
   const $ = sel => document.querySelector(sel);
@@ -445,7 +451,7 @@
 
   function rowHtml(p, sub) {
     const c = cat(p.category);
-    const where = [p.country ? flag(p.country) + ' ' + (p.city || countryName(p.country)) : '', sub ?? c.name].filter(Boolean).join(' · ');
+    const where = [PRIO[p.prio] ? PRIO[p.prio].stars : '', p.country ? flag(p.country) + ' ' + (p.city || countryName(p.country)) : '', sub ?? c.name].filter(Boolean).join(' · ');
     return `<div class="row${p.visited ? ' done' : ''}">
       <button class="row-main" data-open="${p.id}">
         <span class="row-ico" style="background:${c.color}"><span class="ms fill">${c.icon}</span></span>
@@ -465,7 +471,9 @@
     });
   }
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'de');
-  const openFirst = (a, b) => (a.visited - b.visited) || byName(a, b);
+  const prioRank = p => PRIO[p.prio] ? p.prio : 9;
+  const byPrio = (a, b) => (prioRank(a) - prioRank(b)) || byName(a, b);
+  const openFirst = (a, b) => (a.visited - b.visited) || byPrio(a, b);
 
   const VIEWS = {
     browse() {
@@ -507,6 +515,10 @@
           <span>${flag(p.country)} ${esc(countryName(p.country))}</span>
           ${p.visited ? `<span class="done-pill"><span class="ms fill">check_circle</span>Erledigt${p.visitedDate ? ' am ' + fmtDate(p.visitedDate) : ''}</span>` : ''}
         </div>
+        ${PRIO[p.prio] || p.info ? `<div class="prio-card${PRIO[p.prio] ? ' p' + p.prio : ''}">
+          ${PRIO[p.prio] ? `<div class="prio-head"><span class="stars">${PRIO[p.prio].stars}</span> ${PRIO[p.prio].label}<span class="muted small"> · ${PRIO[p.prio].hint}</span></div>` : ''}
+          ${p.info ? `<p>${esc(p.info).replace(/\n/g, '<br>')}</p>` : ''}
+        </div>` : ''}
         <div class="actions">
           ${hasPos(p) ? `<a class="act primary big" href="${routeUrl(p)}" target="_blank" rel="noopener"><span class="ms fill">directions</span>Route starten</a>` : `<button class="act primary big" data-act="place-pos"><span class="ms">place</span>Position setzen</button>`}
           <button class="act big ${p.visited ? 'ok' : ''}" data-toggle="${p.id}"><span class="ms${p.visited ? ' fill' : ''}">${p.visited ? 'check_circle' : 'check'}</span>${p.visited ? 'Erledigt' : 'Abhaken'}</button>
@@ -559,6 +571,10 @@
             </div>
             <div class="inline-add"><input id="f-newtrip" placeholder="Neuer Trip, z. B. Norwegen 2026"><button type="button" class="act" data-act="add-trip-inline"><span class="ms">add</span>Anlegen</button></div>
           </div>
+          <div class="field"><span>Priorität</span><div class="seg" id="f-prio">
+            ${[[1, '★★★ Must-see'], [2, '★★ Lohnt sich'], [3, '★ Optional'], [0, 'Keine']].map(([k, l]) => `<button type="button" data-prio="${k}" aria-pressed="${(d.prio || 0) === k}">${l}</button>`).join('')}
+          </div></div>
+          <label class="field"><span>Info: Was ist das, lohnt es sich?</span><textarea id="f-info" placeholder="Kurz beschreiben, was den Ort ausmacht und für wen er sich lohnt">${esc(d.info)}</textarea></label>
           <label class="field"><span>Notiz</span><textarea id="f-note" placeholder="Öffnungszeiten, Tipps, Eintritt …">${esc(d.note)}</textarea></label>
           <label class="field" style="display:flex;align-items:center;gap:10px"><input type="checkbox" id="f-visited" ${d.visited ? 'checked' : ''} style="width:22px;height:22px"> <span style="margin:0;font-size:15px;color:var(--ink)">Schon erledigt ✅</span></label>
           <p class="muted small">${d.country ? flag(d.country) + ' ' + esc(countryName(d.country)) : ''}${d.address ? ' · ' + esc(d.address) : ''}</p>
@@ -690,12 +706,13 @@
       trip: (a, b) => tripName(a).localeCompare(tripName(b), 'de') || byName(a, b),
       date: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
       open: openFirst,
+      prio: byPrio,
     };
     const s = sorts[ui.sort] ? ui.sort : 'name';
     const sorted = list.slice().sort(sorts[s]);
     return `<div class="toolbar"><span class="muted small">${list.length} Punkte</span>
       <select id="sort" aria-label="Sortieren">
-        ${[['name', 'Name'], ['country', 'Land'], ['category', 'Kategorie'], ['trip', 'Trip'], ['open', 'Offene zuerst'], ['date', 'Zuletzt hinzugefügt']].map(([k, l]) => `<option value="${k}" ${s === k ? 'selected' : ''}>${l}</option>`).join('')}
+        ${[['name', 'Name'], ['country', 'Land'], ['category', 'Kategorie'], ['trip', 'Trip'], ['prio', 'Priorität'], ['open', 'Offene zuerst'], ['date', 'Zuletzt hinzugefügt']].map(([k, l]) => `<option value="${k}" ${s === k ? 'selected' : ''}>${l}</option>`).join('')}
       </select></div>` + sorted.map(p => rowHtml(p, s === 'trip' ? (tripName(p) === '~' ? 'Ohne Trip' : tripName(p)) : undefined)).join('');
   }
 
@@ -775,7 +792,8 @@
   function bindEdit(v) {
     const d = v.draft;
     const f = $('#edit-form');
-    const keep = () => { d.name = $('#f-name').value; d.note = $('#f-note').value; d.visited = $('#f-visited').checked; };
+    const keep = () => { d.name = $('#f-name').value; d.info = $('#f-info').value.trim(); d.note = $('#f-note').value; d.visited = $('#f-visited').checked; };
+    f.querySelectorAll('[data-prio]').forEach(b => b.onclick = () => { d.prio = +b.dataset.prio || null; f.querySelectorAll('[data-prio]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
     f.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => { keep(); d.category = b.dataset.cat; f.querySelectorAll('[data-cat]').forEach(x => x.setAttribute('aria-pressed', x === b)); });
     f.querySelectorAll('[data-tripopt]').forEach(b => b.onclick = () => {
       const id = b.dataset.tripopt; d.tripIds = d.tripIds || [];

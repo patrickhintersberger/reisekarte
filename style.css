@@ -232,6 +232,14 @@ h1.place-title { margin: 4px 0 2px; font-size: 22px; line-height: 1.25; font-wei
 .trip-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--c) 16%, var(--surface)); border-color: var(--c); }
 .danger-zone { margin-top: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
+/* Priorität & Info */
+.prio-card { border-radius: 12px; padding: 10px 14px; margin: 0 0 14px; background: var(--surface-2); }
+.prio-card p { margin: 4px 0 0; line-height: 1.5; }
+.prio-head { font-weight: 500; }
+.prio-head .stars { letter-spacing: 1px; color: #f9ab00; }
+.prio-card.p1 { background: color-mix(in srgb, #f9ab00 14%, var(--surface)); }
+#f-prio button { font-size: 12.5px; padding: 0 4px; }
+
 /* Formular */
 .field { display: block; margin: 12px 0; }
 .field > span { display: block; font-size: 12px; font-weight: 500; color: var(--ink-2); margin-bottom: 6px; letter-spacing: .02em; }
