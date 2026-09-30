@@ -89,8 +89,8 @@
   const layers = {
     light: vectorLayer('liberty'),
     dark: vectorLayer('dark'),
-    sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Bilder &copy; Esri' }),
-    labels: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, pane: 'overlayPane' }),
+    sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 18, detectRetina: true, attribution: 'Bilder &copy; Esri' }),
+    labels: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 18, detectRetina: true, pane: 'overlayPane' }),
   };
   let baseMode = lsGet('rk-base', 'map');
   function applyBase() {
