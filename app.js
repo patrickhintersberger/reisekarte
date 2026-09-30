@@ -937,6 +937,68 @@
     ['touchend', 'touchcancel'].forEach(ev => el.addEventListener(ev, () => clearTimeout(timer), { passive: true }));
     map.on('movestart zoomstart', () => clearTimeout(timer));
   })();
+  // Einhand-Zoom wie bei Google Maps: doppelt tippen und beim zweiten Tippen
+  // den Finger halten und ziehen – runter = ranzoomen, hoch = rauszoomen.
+  // Nur doppelt tippen (ohne Ziehen) zoomt eine Stufe rein.
+  (function oneFingerZoom() {
+    const el = map.getContainer();
+    const PX_PER_LEVEL = 90;
+    let lastTap = null;   // { x, y, t } des letzten kurzen Tippens
+    let down = null;      // { x, y, t } aktueller Finger
+    let qz = null;        // laufende Zoom-Geste
+    const inMap = e => el.contains(e.target) && !e.target.closest('.leaflet-control-container');
+    const pt = (x, y) => { const r = el.getBoundingClientRect(); return L.point(x - r.left, y - r.top); };
+    const swallow = e => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); };
+    function update() {
+      qz.raf = null;
+      const d = map.getSize().divideBy(2).subtract(qz.p);
+      qz.center = map.unproject(map.project(qz.anchor, qz.zoom).add(d), qz.zoom);
+      map._move(qz.center, qz.zoom, { pinch: true, round: false });
+    }
+    document.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1 || !inMap(e)) { lastTap = null; return; }
+      const t = e.touches[0], now = Date.now();
+      down = { x: t.clientX, y: t.clientY, t: now };
+      if (!lastTap || now - lastTap.t > 300 || Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) > 40) return;
+      swallow(e);
+      lastTap = null;
+      const p = pt(t.clientX, t.clientY);
+      map._stop();
+      qz = { startY: t.clientY, z0: map.getZoom(), zoom: map.getZoom(), p, anchor: map.containerPointToLatLng(p), center: map.getCenter(), moved: false, raf: null };
+    }, { capture: true, passive: false });
+    document.addEventListener('touchmove', e => {
+      if (!qz) return;
+      swallow(e);
+      if (e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - qz.startY;
+      if (!qz.moved) {
+        if (Math.abs(dy) < 8) return;
+        qz.moved = true;
+        map._moveStart(true, false);
+      }
+      qz.zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), qz.z0 + dy / PX_PER_LEVEL));
+      if (!qz.raf) qz.raf = L.Util.requestAnimFrame(update);
+    }, { capture: true, passive: false });
+    function end(e) {
+      if (qz) {
+        swallow(e);
+        if (qz.raf) { L.Util.cancelAnimFrame(qz.raf); update(); }
+        const g = qz; qz = null;
+        if (!g.moved) map.setZoomAround(g.p, map.getZoom() + 1);
+        else map._animateZoom(g.center, map._limitZoom(g.zoom), true, map.options.zoomSnap);
+        return;
+      }
+      // kurzes Tippen merken, damit das nächste Tippen als Doppeltipp erkannt wird
+      const t = e.changedTouches[0];
+      if (e.type === 'touchend' && down && e.touches.length === 0 && inMap(e) &&
+          Date.now() - down.t < 250 && Math.hypot(t.clientX - down.x, t.clientY - down.y) < 10) {
+        lastTap = { x: t.clientX, y: t.clientY, t: Date.now() };
+      } else lastTap = null;
+      down = null;
+    }
+    document.addEventListener('touchend', end, { capture: true, passive: false });
+    document.addEventListener('touchcancel', end, { capture: true, passive: false });
+  })();
 
   // ---------- Suche ----------
   const q = $('#q'), results = $('#results');
