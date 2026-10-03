@@ -85,10 +85,15 @@
   }
 
   // ---------- GitHub API ----------
+  // Netzwerkfehler mit Hinweis, welcher Schritt gescheitert ist (statt nur „Failed to fetch“)
+  async function net(what, url, opts) {
+    try { return await fetch(url, opts); }
+    catch (e) { throw new Error(`Keine Verbindung zu GitHub beim ${what} (${e.message}). Prüfe die Internetverbindung und versuche es erneut.`); }
+  }
   async function gh(method, body) {
     const token = getToken();
     const url = `https://api.github.com/repos/${getRepo()}/contents/${cfg.dataPath}` + (method === 'GET' ? `?ref=${cfg.branch}` : '');
-    const res = await fetch(url, {
+    const res = await net(method === 'GET' ? 'Laden' : 'Speichern', url, {
       method,
       cache: 'no-store',
       headers: {
@@ -119,7 +124,7 @@
     else {
       // Datei > 1 MB: Inhalt über dieselbe API als Rohtext holen
       // (der Download-Link auf raw.githubusercontent.com lässt sich mit Token aus dem Browser nicht abrufen)
-      const raw = await fetch(`https://api.github.com/repos/${getRepo()}/contents/${cfg.dataPath}?ref=${cfg.branch}`, {
+      const raw = await net('Laden der großen Datei', `https://api.github.com/repos/${getRepo()}/contents/${cfg.dataPath}?ref=${cfg.branch}`, {
         cache: 'no-store',
         headers: { 'Authorization': `Bearer ${getToken()}`, 'Accept': 'application/vnd.github.raw+json', 'X-GitHub-Api-Version': '2022-11-28' },
       });

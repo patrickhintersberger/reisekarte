@@ -652,7 +652,7 @@
           <button class="act" data-act="export"><span class="ms">download</span>Als Datei sichern</button>
           <label class="act" style="display:inline-flex;margin-left:6px"><span class="ms">upload</span>Datei einlesen<input type="file" id="s-import" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips</p>`;
+        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips · Version 10</p>`;
     },
   };
 
