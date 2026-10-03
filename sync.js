@@ -117,8 +117,13 @@
     let text;
     if (meta.content && meta.encoding === 'base64') text = b64decode(meta.content);
     else {
-      // Datei > 1 MB: Inhalt separat holen
-      const raw = await fetch(meta.download_url || meta.git_url, { cache: 'no-store', headers: { 'Authorization': `Bearer ${getToken()}` } });
+      // Datei > 1 MB: Inhalt über dieselbe API als Rohtext holen
+      // (der Download-Link auf raw.githubusercontent.com lässt sich mit Token aus dem Browser nicht abrufen)
+      const raw = await fetch(`https://api.github.com/repos/${getRepo()}/contents/${cfg.dataPath}?ref=${cfg.branch}`, {
+        cache: 'no-store',
+        headers: { 'Authorization': `Bearer ${getToken()}`, 'Accept': 'application/vnd.github.raw+json', 'X-GitHub-Api-Version': '2022-11-28' },
+      });
+      if (!raw.ok) throw new Error(`GitHub antwortet mit Fehler ${raw.status}.`);
       text = await raw.text();
     }
     const data = text.trim() ? JSON.parse(text) : {};
