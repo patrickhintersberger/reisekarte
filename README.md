@@ -19,3 +19,6 @@ Die Punkte liegen im privaten Repo `reisekarte-daten` (Datei `places.json`). Die
 
 ## Kategorien anpassen
 In `config.js` (`RK_CATEGORIES`). Die Icons sind [Material Symbols](https://fonts.google.com/icons). Ein neues Icon muss zusätzlich in `index.html` in der Liste `icon_names=` stehen (alphabetisch sortiert).
+
+## Offline
+`sw.js` legt die App samt Bibliotheken auf dem Gerät ab, `offline.js` lädt einmal die Weltkarte von OpenFreeMap bis Zoomstufe 5 (ca. 60 MB Download, ca. 120 MB auf dem Gerät, Cache `reisekarte-weltkarte`). Ohne Internet schaltet die Karte auf diese gespeicherte Fassung um (größte Zoomstufe 10), Punkte und Trips lassen sich weiter bearbeiten und werden später synchronisiert. Satellitenbilder und Suche brauchen Internet.

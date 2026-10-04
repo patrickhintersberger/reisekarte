@@ -87,8 +87,11 @@
   // ---------- GitHub API ----------
   // Netzwerkfehler mit Hinweis, welcher Schritt gescheitert ist (statt nur „Failed to fetch“)
   async function net(what, url, opts) {
-    try { return await fetch(url, opts); }
-    catch (e) { throw new Error(`Keine Verbindung zu GitHub beim ${what} (${e.message}). Prüfe die Internetverbindung und versuche es erneut.`); }
+    // Abbruch nach einer Minute, damit ein hängendes WLAN (z.B. im Flugzeug) die Synchronisation nicht blockiert
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(), 60000);
+    try { return await fetch(url, { ...opts, signal: ctl.signal }); }
+    catch (e) { const err = new Error(`Keine Verbindung zu GitHub beim ${what} (${e.message}). Prüfe die Internetverbindung und versuche es erneut.`); err.offline = true; throw err; }
   }
   async function gh(method, body) {
     const token = getToken();
@@ -182,7 +185,9 @@
         setStatus('ok', 'Synchronisiert ' + new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }));
       } catch (e) {
         saveLocal();
-        setStatus('error', e.message || 'Synchronisation fehlgeschlagen');
+        // Keine Verbindung: kein Fehler, die Änderungen bleiben auf dem Gerät und werden später übertragen
+        if (e && e.offline) setStatus('offline', 'Offline – wird später synchronisiert');
+        else setStatus('error', e.message || 'Synchronisation fehlgeschlagen');
       } finally {
         syncing = null;
         if (again) { again = false; setTimeout(sync, 300); }

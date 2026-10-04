@@ -71,21 +71,46 @@
   const dark = window.matchMedia('(prefers-color-scheme: dark)');
   const attrOSM = 'Suche: <a href="https://www.geoapify.com" target="_blank" rel="noopener">Powered by Geoapify</a> · <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
   // Vektorkarte (OpenFreeMap) mit deutschen Beschriftungen
+  const GERMAN = ['coalesce', ['get', 'name:de'], ['get', 'name_de'], ['get', 'name:latin'], ['get', 'name']];
+  // Nur Ortsnamen eindeutschen; Straßennummern (ref) in den Schildern bleiben
+  const isNameLabel = l => l.type === 'symbol' && l.layout && l.layout['text-field'] && /name/.test(JSON.stringify(l.layout['text-field']));
   function vectorLayer(style) {
-    const layer = L.maplibreGL({ style: `https://tiles.openfreemap.org/styles/${style}`, attribution: attrOSM });
+    const url = `https://tiles.openfreemap.org/styles/${style}`;
+    // Ohne Internet: Stil aus dem Speicher holen und nur die gespeicherte Weltkarte (bis Zoomstufe 5) verwenden,
+    // darüber hinaus wird sie einfach vergrößert. Die Karte startet dafür leer und bekommt den Stil, sobald er gelesen ist.
+    const offline = offlineMap;
+    const layer = L.maplibreGL({ style: offline ? { version: 8, sources: {}, layers: [] } : url, attribution: attrOSM });
     layer.once('add', () => {
       const gl = layer.getMaplibreMap();
+      if (offline) {
+        gl.once('load', async () => {
+          try {
+            const st = await (await fetch(url)).json();
+            st.layers.forEach(l => { if (isNameLabel(l)) l.layout['text-field'] = GERMAN; });
+            const src = st.sources.openmaptiles || {};
+            st.sources.openmaptiles = { type: 'vector', tiles: ['https://tiles.openfreemap.org/planet/offline/{z}/{x}/{y}.pbf'], minzoom: 0, maxzoom: 5, ...(src.attribution ? { attribution: src.attribution } : {}) };
+            if (st.sources.ne2_shaded) st.sources.ne2_shaded.maxzoom = 3;
+            gl.setStyle(st, { diff: false });
+          } catch {}
+        });
+        return;
+      }
       gl.on('styledata', function germanLabels() {
         gl.off('styledata', germanLabels);
         gl.getStyle().layers.forEach(l => {
-          if (l.type === 'symbol' && l.layout && l.layout['text-field']) {
-            try { gl.setLayoutProperty(l.id, 'text-field', ['coalesce', ['get', 'name:de'], ['get', 'name_de'], ['get', 'name:latin'], ['get', 'name']]); } catch {}
+          if (isNameLabel(l)) {
+            try { gl.setLayoutProperty(l.id, 'text-field', GERMAN); } catch {}
           }
         });
       });
+      // Kacheln laden nicht (z.B. WLAN ohne Internet): auf die gespeicherte Weltkarte umschalten
+      let fails = 0;
+      gl.on('error', e => { if (!offlineMap && e && e.sourceId === 'openmaptiles' && ++fails >= 3) setOfflineMap(true); });
     });
     return layer;
   }
+  let offlineMap = !navigator.onLine;
+  const OFFLINE_MAX_ZOOM = 10;
   const layers = {
     light: vectorLayer('liberty'),
     dark: vectorLayer('dark'),
@@ -95,12 +120,31 @@
   let baseMode = lsGet('rk-base', 'map');
   function applyBase() {
     Object.values(layers).forEach(l => map.removeLayer(l));
-    if (baseMode === 'sat') { layers.sat.addTo(map); layers.labels.addTo(map); }
+    map.setMaxZoom(offlineMap ? OFFLINE_MAX_ZOOM : 19);
+    if (baseMode === 'sat' && !offlineMap) { layers.sat.addTo(map); layers.labels.addTo(map); }
     else (dark.matches ? layers.dark : layers.light).addTo(map);
     $('#layer-btn').classList.toggle('active', baseMode === 'sat');
     $('#layer-btn').setAttribute('aria-label', baseMode === 'sat' ? 'Zur Kartenansicht wechseln' : 'Zur Satellitenansicht wechseln');
   }
   dark.addEventListener?.('change', applyBase);
+  function setOfflineMap(on) {
+    if (offlineMap === on) return;
+    offlineMap = on;
+    Object.values(layers).forEach(l => map.removeLayer(l));
+    layers.light = vectorLayer('liberty');
+    layers.dark = vectorLayer('dark');
+    applyBase();
+    if (on) toast(RK_OFFLINE.state.complete ? 'Offline – gespeicherte Weltkarte' : 'Offline – die Weltkarte ist noch nicht vollständig gespeichert');
+  }
+  // Wieder online? Bei Offline-Modus regelmäßig prüfen, ob OpenFreeMap erreichbar ist
+  async function checkOnline() {
+    if (!offlineMap || !navigator.onLine) return;
+    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 5000);
+    try { const r = await fetch('https://tiles.openfreemap.org/planet?online-check=' + Date.now(), { cache: 'no-store', signal: ctl.signal }); if (r.ok) setOfflineMap(false); } catch {}
+  }
+  window.addEventListener('offline', () => setOfflineMap(true));
+  window.addEventListener('online', checkOnline);
+  setInterval(checkOnline, 60000);
   $('#layer-btn').onclick = () => { baseMode = baseMode === 'sat' ? 'map' : 'sat'; lsSet('rk-base', baseMode); applyBase(); };
   applyBase();
 
@@ -661,9 +705,19 @@
           <button class="act" data-act="export"><span class="ms">download</span>Als Datei sichern</button>
           <label class="act" style="display:inline-flex;margin-left:6px"><span class="ms">upload</span>Datei einlesen<input type="file" id="s-import" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips · Version 11</p>`;
+        <div class="field"><span>Offline-Weltkarte</span><div id="offline-box">${offlineBox()}</div></div>
+        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips · Version 12</p>`;
     },
   };
+
+  function offlineBox() {
+    const o = RK_OFFLINE.state;
+    const pct = o.total ? Math.floor(o.done / o.total * 100) : 0;
+    if (o.complete) return '<p class="small" style="margin:0">✅ Auf diesem Gerät gespeichert (ca. 115 MB). Die Karte funktioniert ohne Internet bis zur Ebene von Ländern und Regionen; genauere Ansichten, Satellitenbilder und die Suche brauchen Internet.</p>';
+    if (o.running) return `<p class="small" style="margin:0">Wird geladen … ${pct} % (${o.done} von ${o.total || '…'} Teilen, insgesamt ca. 60 MB Download)</p>`;
+    return `<p class="small" style="margin:0 0 6px">${esc(o.error || 'Noch nicht gespeichert. Damit siehst du die Weltkarte auch im Flugzeug (ca. 60 MB Download, am besten im WLAN).')}</p><button class="act" data-act="offline-load"><span class="ms">download</span>Weltkarte laden</button>`;
+  }
+  RK_OFFLINE.onChange(() => { const b = $('#offline-box'); if (b) { b.innerHTML = offlineBox(); const btn = b.querySelector('[data-act="offline-load"]'); if (btn) btn.onclick = () => RK_OFFLINE.start(); } });
 
   function countriesHtml(list) {
     const groups = new Map();
@@ -879,6 +933,7 @@
       if (S.status === 'ok') toast('Verbunden ✅');
     };
     const on = (act, fn) => body.querySelectorAll(`[data-act="${act}"]`).forEach(b => b.onclick = fn);
+    on('offline-load', () => RK_OFFLINE.start());
     on('logout', async () => { await S.setToken(null); render(); toast('Verbindung getrennt'); });
     on('sync-now', async () => { await S.sync(); render(); });
     on('export', () => {
@@ -1175,6 +1230,7 @@
   render();
   if (!lsGet('rk-view', null) && S.places.some(hasPos)) fitPlaces(S.places);
   S.sync();
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
   // erste Anpassung an geladene Daten
   let fitted = !!lsGet('rk-view', null);
   S.onChange(() => { if (!fitted && S.places.some(hasPos)) { fitted = true; fitPlaces(S.places); } });
