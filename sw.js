@@ -3,7 +3,7 @@
 // - Eigene Dateien kommen zuerst aus dem Netz (Updates kommen sofort an), aber nur, wenn das Netz schnell antwortet.
 // - Kartendaten (OpenFreeMap): Stil, Symbole und Schriften werden mitgespeichert. Die Weltkarte bis Zoomstufe 5
 //   lädt die App einmal herunter (offline.js); diese Kacheln kommen dann immer aus dem Speicher.
-const CACHE = 'reisekarte-v12';
+const CACHE = 'reisekarte-v13';
 const MAP_CACHE = 'reisekarte-weltkarte'; // bleibt bei App-Updates erhalten
 const LIBS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 const SHELL = ['index.html', 'app.js', 'sync.js', 'config.js', 'offline.js', 'style.css', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-512.png'];
@@ -78,7 +78,9 @@ async function fromLib(req) {
 async function fromOwn(req) {
   const cache = await caches.open(CACHE);
   const key = ownKey(req.url);
-  const net = fetch(req).then(res => { if (res.ok) cache.put(key, res.clone()); return res; });
+  // Beim Server nachfragen statt den Browser-Zwischenspeicher zu nehmen (GitHub Pages erlaubt dort 10 Minuten),
+  // sonst kommt ein Update erst verspätet an. Unverändertes wird mit „nicht geändert“ beantwortet und kostet kaum etwas.
+  const net = fetch(req.mode === 'navigate' ? req.url : req, { cache: 'no-cache' }).then(res => { if (res.ok) cache.put(key, res.clone()); return res; });
   let hit = await cache.match(key);
   if (!hit && req.mode === 'navigate') hit = await cache.match(ownKey('index.html'));
   if (!hit) return net;
