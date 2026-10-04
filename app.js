@@ -158,13 +158,22 @@
       if (m && m.options.sig === sig) continue;
       if (m) { cluster.removeLayer(m); markers.delete(p.id); }
       m = L.marker([p.lat, p.lng], { icon: placeIcon(p, sel), placeId: p.id, done: !!p.visited, sig, zIndexOffset: sel ? 1000 : 0, keyboard: true, title: p.name });
-      m.on('click', () => openPlace(p.id, true));
+      // Einfacher Klick: Ort öffnen, Zoomstufe bleibt. Doppelklick: heranzoomen.
+      // Zwei schnelle Klicks auf denselben Ort zählen als Doppelklick (das Symbol wird beim ersten Klick ausgetauscht,
+      // daher kein natives dblclick); funktioniert so auch als Doppeltipp auf dem Handy.
+      m.on('click', () => {
+        const now = Date.now();
+        if (lastPinTap.id === p.id && now - lastPinTap.t < 500) { lastPinTap = {}; focusOn(p.lat, p.lng, Math.max(map.getZoom(), 15)); return; }
+        lastPinTap = { id: p.id, t: now };
+        openPlace(p.id, 'keep');
+      });
       markers.set(p.id, m);
       add.push(m);
     }
     if (add.length) cluster.addLayers(add);
   }
 
+  let lastPinTap = {};
   // Punkt so zentrieren, dass er nicht unter Sheet/Seitenleiste liegt
   function focusOn(lat, lng, zoom) {
     const z = zoom ?? Math.max(map.getZoom(), 14);
@@ -652,7 +661,7 @@
           <button class="act" data-act="export"><span class="ms">download</span>Als Datei sichern</button>
           <label class="act" style="display:inline-flex;margin-left:6px"><span class="ms">upload</span>Datei einlesen<input type="file" id="s-import" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips · Version 10</p>`;
+        <p class="muted small">${S.places.length} Punkte · ${S.trips.length} Trips · Version 11</p>`;
     },
   };
 
@@ -727,12 +736,22 @@
     S.savePlace({ ...p, visited: !p.visited, visitedDate: !p.visited ? today() : null });
     toast(!p.visited ? `✅ ${p.name} abgehakt` : `${p.name} wieder offen`);
   }
+  // fly: true = aus der Liste geöffnet (hinschieben, ohne heranzuzoomen), 'keep' = auf der Karte angeklickt
+  // (nur verschieben, falls der Punkt unter Seitenleiste oder Sheet verschwindet), false = gar nicht bewegen
   function openPlace(id, fly = true) {
     const p = S.place(id); if (!p) return;
     clearTemp();
     if (current().name === 'place') openView({ name: 'place', id }, true); else openView({ name: 'place', id });
     select(id);
-    if (fly && hasPos(p)) focusOn(p.lat, p.lng);
+    if (!fly || !hasPos(p)) return;
+    if (fly === 'keep') {
+      const pt = map.latLngToContainerPoint([p.lat, p.lng]), size = map.getSize();
+      const hidden = isDesktop()
+        ? pt.x < (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-w')) || 408) + 24
+        : pt.y > size.y - sheetHeight() - 24;
+      if (!hidden) return;
+    }
+    focusOn(p.lat, p.lng, map.getZoom());
   }
   function openTrip(id) {
     ui.activeTrip = id;
